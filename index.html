@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>문어왕 대화실</title>
+    <meta name="theme-color" content="#e71770" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="문어왕" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./assets/icon-192.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="character-pane" aria-label="문어왕">
+        <div class="brand-row">
+          <div>
+            <p class="eyebrow">OctoKing</p>
+            <h1>문어왕 대화실</h1>
+          </div>
+          <button class="icon-button ghost" id="soundToggle" type="button" aria-label="목소리 끄기">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 10v4h4l5 4V6L8 10H4z"></path>
+              <path d="M16 9.5a4 4 0 0 1 0 5"></path>
+              <path d="M18.5 7a7 7 0 0 1 0 10"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="octo-stage" id="octoStage">
+          <div class="speech-card" id="statusCard">
+            <span id="statusText">무엇이 궁금한가, 선원?</span>
+          </div>
+          <div class="octo-glow"></div>
+          <img
+            class="octo-image"
+            src="./assets/octoking-reference.jpg"
+            alt="해군 모자를 쓴 분홍 문어왕 캐릭터"
+          />
+        </div>
+
+        <div class="mood-dock" aria-label="문어왕 상태">
+          <button class="mood active" data-mood="captain" type="button">선장</button>
+          <button class="mood" data-mood="curious" type="button">궁금</button>
+          <button class="mood" data-mood="brave" type="button">용감</button>
+          <button class="mood" data-mood="gentle" type="button">다정</button>
+        </div>
+      </section>
+
+      <section class="chat-pane" aria-label="대화">
+        <div class="tabs" role="tablist" aria-label="보기 전환">
+          <button class="tab active" id="chatTab" type="button">대화</button>
+          <button class="tab" id="treasureTab" type="button">보관함 <span id="savedCount">0</span></button>
+        </div>
+
+        <section class="panel active" id="chatPanel">
+          <div class="settings-row" aria-label="답변 설정">
+            <label>
+              나이
+              <select id="ageSelect">
+                <option value="small">5~7세</option>
+                <option value="middle" selected>8~10세</option>
+                <option value="big">11~13세</option>
+              </select>
+            </label>
+            <label>
+              길이
+              <select id="lengthSelect">
+                <option value="short">짧게</option>
+                <option value="normal" selected>보통</option>
+                <option value="long">자세히</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="messages" id="messages" aria-live="polite"></div>
+
+          <div class="suggestion-strip" id="suggestions" aria-label="추천 질문"></div>
+
+          <form class="composer" id="composer">
+            <button class="icon-button mic" id="micButton" type="button" aria-label="마이크">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
+                <path d="M5 10v1a7 7 0 0 0 14 0v-1"></path>
+                <path d="M12 18v3"></path>
+                <path d="M8 21h8"></path>
+              </svg>
+            </button>
+            <label class="composer-input">
+              <span class="sr-only">질문</span>
+              <textarea id="questionInput" rows="1" maxlength="240" placeholder="문어왕에게 물어볼 바다 질문"></textarea>
+            </label>
+            <button class="icon-button send" type="submit" aria-label="보내기">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M22 2 11 13"></path>
+                <path d="m22 2-7 20-4-9-9-4 20-7z"></path>
+              </svg>
+            </button>
+          </form>
+        </section>
+
+        <section class="panel" id="treasurePanel">
+          <div class="treasure-head">
+            <h2>보관함</h2>
+            <button class="text-button danger" id="clearSaved" type="button">비우기</button>
+          </div>
+          <div class="saved-list" id="savedList"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
