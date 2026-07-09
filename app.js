@@ -2,7 +2,6 @@ const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
 const DEFAULT_MODEL = "gpt-5.4-mini";
 
 const state = {
-  mood: "captain",
   sound: true,
   voiceUnlocked: false,
   listening: false,
@@ -14,13 +13,6 @@ const state = {
     answer: "",
     source: "ready",
   },
-};
-
-const moodCopy = {
-  captain: "무엇이 궁금한가, 선원?",
-  curious: "흠, 이건 내 망원경으로 살펴봐야겠군.",
-  brave: "걱정 말게. 깊은 바다도 함께 가면 괜찮다.",
-  gentle: "좋아, 천천히 물어봐도 돼.",
 };
 
 const suggestions = [
@@ -37,22 +29,25 @@ const suggestions = [
 const localAnswers = [
   {
     tags: ["문어", "다리", "팔", "8", "여덟"],
-    mood: "curious",
     answer:
-      "문어의 다리처럼 보이는 것은 팔이야. 여덟 팔에는 빨판이 많아서 물건을 붙잡고, 냄새와 맛도 느끼고, 좁은 바위틈도 살필 수 있어.",
+      "좋은 질문이야. 문어의 다리처럼 보이는 것은 팔이야. 여덟 팔에는 빨판이 많아서 물건을 붙잡고, 냄새와 맛도 느끼고, 좁은 바위틈도 살필 수 있어.",
   },
   {
     tags: ["바닷물", "짜", "소금", "염분"],
-    mood: "captain",
     answer:
-      "바닷물은 강물이 바위와 흙에서 녹여 온 소금 성분이 아주 오랫동안 바다에 모였기 때문에 짜. 물은 증발해도 소금은 바다에 남아.",
+      "좋은 질문이야. 바닷물은 강물이 바위와 흙에서 녹여 온 소금 성분이 아주 오랫동안 바다에 모였기 때문에 짜. 물은 증발해도 소금은 바다에 남아.",
   },
   {
     tags: ["고래", "물고기", "포유류", "숨"],
-    mood: "gentle",
     answer:
-      "고래는 물속에 살지만 물고기가 아니라 포유류야. 아가미가 아니라 허파로 숨 쉬고, 새끼에게 젖을 먹여 키워.",
+      "좋은 질문이야. 고래는 물속에 살지만 물고기가 아니라 포유류야. 아가미가 아니라 허파로 숨 쉬고, 새끼에게 젖을 먹여 키워.",
   },
+];
+
+const reactions = [
+  { className: "surprise", text: "앗! 갑자기 불렀느냐!" },
+  { className: "ink", text: "먹물 발사! 슈우욱!" },
+  { className: "dodge", text: "요리조리 피했다!" },
 ];
 
 const elements = {
@@ -61,10 +56,11 @@ const elements = {
   suggestions: document.querySelector("#suggestions"),
   status: document.querySelector("#statusText"),
   stage: document.querySelector("#octoStage"),
+  octoImage: document.querySelector("#octoImage"),
+  inkSplash: document.querySelector("#inkSplash"),
+  userBubble: document.querySelector("#userBubble"),
   soundToggle: document.querySelector("#soundToggle"),
   micButton: document.querySelector("#micButton"),
-  ageSelect: document.querySelector("#ageSelect"),
-  lengthSelect: document.querySelector("#lengthSelect"),
   savedCount: document.querySelector("#savedCount"),
   savedList: document.querySelector("#savedList"),
   clearSaved: document.querySelector("#clearSaved"),
@@ -72,9 +68,6 @@ const elements = {
   treasureTab: document.querySelector("#treasureTab"),
   chatPanel: document.querySelector("#chatPanel"),
   treasurePanel: document.querySelector("#treasurePanel"),
-  captionKicker: document.querySelector("#captionKicker"),
-  captionQuestion: document.querySelector("#captionQuestion"),
-  captionAnswer: document.querySelector("#captionAnswer"),
   speakAgain: document.querySelector("#speakAgain"),
   saveCurrent: document.querySelector("#saveCurrent"),
   apiPanel: document.querySelector("#apiPanel"),
@@ -89,18 +82,22 @@ function normalize(text) {
   return text.replace(/\s/g, "").toLowerCase();
 }
 
-function setStatus(text, mode = "") {
+function setOctopusBubble(text, mode = "") {
   elements.status.textContent = text;
   elements.stage.classList.toggle("thinking", mode === "thinking");
   elements.stage.classList.toggle("talking", mode === "talking");
 }
 
-function setMood(mood) {
-  state.mood = mood;
-  document.querySelectorAll(".mood").forEach((button) => {
-    button.classList.toggle("active", button.dataset.mood === mood);
-  });
-  setStatus(moodCopy[mood]);
+function setUserBubble(text) {
+  elements.userBubble.textContent = text || "질문을 말하거나 입력하면 여기에 보여요.";
+  elements.userBubble.classList.toggle("has-question", Boolean(text));
+}
+
+function setVoiceButton() {
+  const label = state.voiceUnlocked ? "목소리 켜짐" : "목소리 켜기";
+  elements.soundToggle.querySelector("span").textContent = state.sound ? label : "목소리 꺼짐";
+  elements.soundToggle.setAttribute("aria-label", state.sound ? label : "문어왕 목소리 켜기");
+  elements.soundToggle.classList.toggle("ready", state.voiceUnlocked && state.sound);
 }
 
 function updateApiUi() {
@@ -122,21 +119,20 @@ function saveApiSettings() {
 
   localStorage.setItem("octoking-openai-model", state.model);
   updateApiUi();
-  setStatus(state.apiKey ? "AI 연결을 저장했어." : "AI 키가 비어 있어.");
+  setOctopusBubble(state.apiKey ? "AI 연결을 저장했어. 이제 정확히 대답해볼게!" : "AI 키가 비어 있어.");
 }
 
 function clearApiSettings() {
   state.apiKey = "";
   localStorage.removeItem("octoking-openai-key");
   updateApiUi();
-  setStatus("AI 연결을 지웠어.");
+  setOctopusBubble("AI 연결을 지웠어.");
 }
 
-function setCaption({ question, answer, source = "chatgpt" }) {
+function setCurrent({ question, answer, source = "chatgpt" }) {
   state.current = { question, answer, source };
-  elements.captionKicker.textContent = source === "chatgpt" ? "ChatGPT 답변" : "문어왕 답변";
-  elements.captionQuestion.textContent = question || "질문을 기다리고 있어요";
-  elements.captionAnswer.textContent = answer || "바다, 생물, 파도, 심해 이야기를 물어보세요.";
+  setUserBubble(question);
+  setOctopusBubble(answer || "무엇이 궁금한가, 선원?");
   elements.saveCurrent.disabled = !answer;
   elements.speakAgain.disabled = !answer;
 }
@@ -189,8 +185,8 @@ function renderSaved() {
     restore.textContent = "보기";
     restore.addEventListener("click", () => {
       openTab("chat");
-      setCaption({ question: item.question, answer: item.answer, source: item.source || "saved" });
-      setStatus("보관한 답변을 다시 보여줄게.");
+      setCurrent({ question: item.question, answer: item.answer, source: item.source || "saved" });
+      setOctopusBubble(item.answer);
     });
 
     const remove = document.createElement("button");
@@ -211,7 +207,7 @@ function renderSaved() {
 
 function saveCurrent() {
   if (!state.current.answer) {
-    setStatus("먼저 질문을 해줘.");
+    setOctopusBubble("먼저 질문을 해줘.");
     return;
   }
 
@@ -223,31 +219,7 @@ function saveCurrent() {
   });
   persistSaved();
   renderSaved();
-  setStatus("보관함에 넣었어.");
-}
-
-function ageInstruction() {
-  return {
-    small: "5~7세 어린이도 이해할 수 있게 아주 쉬운 말과 짧은 문장으로 답해.",
-    middle: "8~10세 어린이가 이해할 수 있게 쉬운 원리와 예시를 섞어 답해.",
-    big: "11~13세 어린이가 이해할 수 있게 원인을 차근차근 설명해.",
-  }[elements.ageSelect.value];
-}
-
-function lengthInstruction() {
-  return {
-    short: "2~3문장으로 짧게 답해.",
-    normal: "4~6문장으로 답해.",
-    long: "7~10문장으로 조금 자세히 답해.",
-  }[elements.lengthSelect.value];
-}
-
-function outputLimit() {
-  return {
-    short: 220,
-    normal: 420,
-    long: 720,
-  }[elements.lengthSelect.value];
+  setOctopusBubble("보관함에 넣었어.");
 }
 
 function localAnswer(question) {
@@ -255,17 +227,10 @@ function localAnswer(question) {
   const match = localAnswers.find((item) => item.tags.some((tag) => clean.includes(normalize(tag))));
 
   if (match) {
-    return {
-      mood: match.mood,
-      text: `좋은 질문이야. ${match.answer}`,
-    };
+    return match.answer;
   }
 
-  return {
-    mood: "gentle",
-    text:
-      "아직 AI 연결이 안 되어 있어서 정확한 답을 만들기 어려워. AI 연결 칸에 OpenAI API 키를 저장하면 질문에 맞춰 바로 답할게.",
-  };
+  return "AI 연결이 아직 안 되어 있어서 정확한 답을 만들기 어려워. AI 연결 칸에 OpenAI API 키를 저장하면 질문에 맞춰 바로 답할게.";
 }
 
 function extractResponseText(data) {
@@ -296,14 +261,14 @@ async function askChatGpt(question) {
       model: state.model,
       instructions: [
         "너는 '문어왕'이라는 친근한 한국어 어린이 설명 선생님이다.",
+        "8~10세 어린이가 이해할 수 있게 쉬운 원리와 예시를 섞어 답한다.",
+        "답변 길이는 보통으로, 4~6문장 정도로 답한다.",
         "캐릭터 말투는 살리되, 질문과 상관없는 바다 이야기로 돌리지 않는다.",
         "질문에 정확히 답하고, 확실하지 않으면 모른다고 말한다.",
         "개인정보를 묻거나 위험한 행동을 시키는 질문에는 안전하게 거절한다.",
-        ageInstruction(),
-        lengthInstruction(),
       ].join("\n"),
       input: question,
-      max_output_tokens: outputLimit(),
+      max_output_tokens: 420,
     }),
   });
 
@@ -326,7 +291,7 @@ async function sendQuestion(rawText) {
   const question = (rawText || elements.input.value).trim();
 
   if (!question) {
-    setStatus("짧아도 좋아. 질문 한 줄만 던져보게.");
+    setOctopusBubble("짧아도 좋아. 질문 한 줄만 던져보게.");
     elements.input.focus();
     return;
   }
@@ -334,31 +299,18 @@ async function sendQuestion(rawText) {
   unlockVoice(false);
   elements.input.value = "";
   elements.input.style.height = "auto";
-  setCaption({ question, answer: "생각하는 중...", source: state.apiKey ? "chatgpt" : "local" });
-  setStatus("문어왕이 답을 찾는 중...", "thinking");
+  setUserBubble(question);
+  setOctopusBubble("생각하는 중...", "thinking");
 
   try {
-    const answer = state.apiKey ? await askChatGpt(question) : localAnswer(question).text;
-    const source = state.apiKey ? "chatgpt" : "local";
-    const mood = state.apiKey ? "captain" : localAnswer(question).mood;
-
-    setMood(mood);
-    setCaption({ question, answer, source });
-    setStatus("답을 찾았어.", "talking");
+    const answer = state.apiKey ? await askChatGpt(question) : localAnswer(question);
+    setCurrent({ question, answer, source: state.apiKey ? "chatgpt" : "local" });
+    setOctopusBubble(answer, "talking");
     speak(answer, false);
-    window.setTimeout(() => setStatus(moodCopy[state.mood]), 1200);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "AI 연결을 확인해줘.";
-    setMood("gentle");
-    setCaption({
-      question,
-      answer: `AI 연결을 확인해줘. ${message}`,
-      source: "local",
-    });
-    setStatus("AI 연결을 확인해줘.");
+    const message = error instanceof Error ? error.message : "AI 연결을 확인해줘.";
+    const answer = `AI 연결을 확인해줘. ${message}`;
+    setCurrent({ question, answer, source: "local" });
   }
 }
 
@@ -368,43 +320,49 @@ function pickKoreanVoice() {
   }
 
   const voices = window.speechSynthesis.getVoices();
-  return voices.find((voice) => voice.lang?.toLowerCase().startsWith("ko")) || voices[0] || null;
+  return (
+    voices.find((voice) => voice.lang?.toLowerCase() === "ko-kr") ||
+    voices.find((voice) => voice.lang?.toLowerCase().startsWith("ko")) ||
+    voices[0] ||
+    null
+  );
 }
 
 function unlockVoice(announce = true) {
   if (!state.sound || !("speechSynthesis" in window)) {
+    setOctopusBubble("이 브라우저는 목소리 읽기를 지원하지 않아.");
     return;
   }
 
   state.voiceUnlocked = true;
+  setVoiceButton();
 
-  if (!announce) {
-    return;
-  }
-
-  const utterance = new SpeechSynthesisUtterance("문어왕 목소리가 켜졌어.");
+  const text = announce ? "문어왕 목소리가 켜졌어." : "응.";
+  const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = "ko-KR";
-  utterance.rate = 0.94;
-  utterance.pitch = 1.05;
+  utterance.rate = 0.86;
+  utterance.pitch = 1.02;
+  utterance.volume = 1;
   const voice = pickKoreanVoice();
   if (voice) {
     utterance.voice = voice;
   }
+
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
-  setStatus("문어왕 목소리가 켜졌어.", "talking");
+
+  if (announce) {
+    setOctopusBubble("문어왕 목소리가 켜졌어.", "talking");
+  }
 }
 
 function splitSpeech(text) {
-  const sentences = text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?。！？]|[다요죠까네]\.)\s+/)
-    .filter(Boolean);
   const chunks = [];
   let current = "";
+  const sentences = text.replace(/\s+/g, " ").split(/(?<=[.!?。！？]|[가-힣][다요죠까네])\s+/).filter(Boolean);
 
   for (const sentence of sentences.length ? sentences : [text]) {
-    if ((current + " " + sentence).trim().length > 150 && current) {
+    if ((current + " " + sentence).trim().length > 120 && current) {
       chunks.push(current);
       current = sentence;
     } else {
@@ -425,7 +383,7 @@ function speak(text, force = false) {
   }
 
   if (!state.voiceUnlocked && !force) {
-    setStatus("'다시 듣기'를 누르면 소리로 읽어줄게.");
+    setOctopusBubble("소리로 들으려면 먼저 '목소리 켜기'를 눌러줘.");
     return;
   }
 
@@ -437,23 +395,27 @@ function speak(text, force = false) {
 
   const speakNext = () => {
     if (index >= chunks.length) {
-      setStatus(moodCopy[state.mood]);
+      elements.stage.classList.remove("talking");
       return;
     }
 
     const utterance = new SpeechSynthesisUtterance(chunks[index]);
     utterance.lang = "ko-KR";
-    utterance.rate = 0.9;
-    utterance.pitch = 1.07;
+    utterance.rate = 0.86;
+    utterance.pitch = 1.02;
+    utterance.volume = 1;
     if (voice) {
       utterance.voice = voice;
     }
+    utterance.onstart = () => elements.stage.classList.add("talking");
     utterance.onend = () => {
       index += 1;
       speakNext();
     };
-    utterance.onerror = () => setStatus("'다시 듣기' 버튼을 한 번 눌러줘.");
-    setStatus("문어왕이 말하는 중...", "talking");
+    utterance.onerror = () => {
+      elements.stage.classList.remove("talking");
+      setOctopusBubble("소리가 안 나면 '목소리 켜기'를 한 번 누른 뒤 다시 듣기를 눌러줘.");
+    };
     window.speechSynthesis.speak(utterance);
   };
 
@@ -477,7 +439,7 @@ function setupSpeechRecognition() {
   recognition.addEventListener("start", () => {
     state.listening = true;
     elements.micButton.classList.add("listening");
-    setStatus("듣고 있어.");
+    setOctopusBubble("듣고 있어.");
   });
 
   recognition.addEventListener("result", (event) => {
@@ -485,6 +447,7 @@ function setupSpeechRecognition() {
       .map((result) => result[0].transcript)
       .join("");
     elements.input.value = transcript;
+    setUserBubble(transcript);
     autoGrow();
     if (event.results[event.results.length - 1].isFinal) {
       sendQuestion(transcript);
@@ -497,7 +460,7 @@ function setupSpeechRecognition() {
   });
 
   recognition.addEventListener("error", () => {
-    setStatus("마이크가 잠깐 조용해졌어. 글자로 물어봐도 좋아.");
+    setOctopusBubble("마이크가 잠깐 조용해졌어. 글자로 물어봐도 좋아.");
   });
 
   elements.micButton.addEventListener("click", () => {
@@ -508,6 +471,23 @@ function setupSpeechRecognition() {
     unlockVoice(false);
     recognition.start();
   });
+}
+
+function reactToTouch() {
+  const reaction = reactions[Math.floor(Math.random() * reactions.length)];
+  elements.stage.classList.remove("surprise", "ink", "dodge");
+  void elements.stage.offsetWidth;
+  elements.stage.classList.add(reaction.className);
+  setOctopusBubble(reaction.text);
+
+  window.setTimeout(() => {
+    elements.stage.classList.remove(reaction.className);
+    if (state.current.answer) {
+      setOctopusBubble(state.current.answer);
+    } else {
+      setOctopusBubble("무엇이 궁금한가, 선원?");
+    }
+  }, 1050);
 }
 
 function autoGrow() {
@@ -523,27 +503,21 @@ function openTab(name) {
   elements.treasurePanel.classList.toggle("active", !chat);
 }
 
-document.querySelectorAll(".mood").forEach((button) => {
-  button.addEventListener("click", () => setMood(button.dataset.mood));
-});
-
 elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   sendQuestion();
 });
 
-elements.input.addEventListener("input", autoGrow);
+elements.input.addEventListener("input", () => {
+  setUserBubble(elements.input.value.trim());
+  autoGrow();
+});
 
 elements.soundToggle.addEventListener("click", () => {
-  state.sound = !state.sound;
-  elements.soundToggle.setAttribute("aria-label", state.sound ? "목소리 끄기" : "목소리 켜기");
-  elements.soundToggle.style.opacity = state.sound ? "1" : "0.54";
-  if (state.sound) {
-    unlockVoice(true);
-  } else if ("speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-    setStatus("목소리를 껐어.");
+  if (!state.sound) {
+    state.sound = true;
   }
+  unlockVoice(true);
 });
 
 elements.speakAgain.addEventListener("click", () => {
@@ -556,12 +530,13 @@ elements.saveApiKey.addEventListener("click", saveApiSettings);
 elements.clearApiKey.addEventListener("click", clearApiSettings);
 elements.chatTab.addEventListener("click", () => openTab("chat"));
 elements.treasureTab.addEventListener("click", () => openTab("treasure"));
+elements.octoImage.addEventListener("pointerdown", reactToTouch);
 
 elements.clearSaved.addEventListener("click", () => {
   state.saved = [];
   persistSaved();
   renderSaved();
-  setStatus("보관함을 비웠어.");
+  setOctopusBubble("보관함을 비웠어.");
 });
 
 if ("speechSynthesis" in window) {
@@ -571,12 +546,12 @@ if ("speechSynthesis" in window) {
 renderSuggestions();
 renderSaved();
 updateApiUi();
-setMood("captain");
-setCaption({
-  question: "질문을 기다리고 있어요",
+setVoiceButton();
+setCurrent({
+  question: "",
   answer: state.apiKey
-    ? "이제 질문하면 ChatGPT API로 답할게요."
-    : "AI 연결 칸에 API 키를 저장하면 질문에 맞춰 답할게요.",
+    ? "이제 질문하면 ChatGPT API로 답할게. 먼저 '목소리 켜기'를 누르면 소리도 들려."
+    : "AI 연결 칸에 API 키를 저장하면 질문에 맞춰 답할게. 먼저 '목소리 켜기'를 누르면 소리도 들려.",
   source: state.apiKey ? "chatgpt" : "local",
 });
 setupSpeechRecognition();
@@ -584,7 +559,7 @@ setupSpeechRecognition();
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("./service-worker.js").catch(() => {
-      setStatus("앱 설치 준비는 나중에 다시 시도할게.");
+      setOctopusBubble("앱 설치 준비는 나중에 다시 시도할게.");
     });
   });
 }

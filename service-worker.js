@@ -1,4 +1,4 @@
-const CACHE_NAME = "octoking-dialog-v2";
+const CACHE_NAME = "octoking-dialog-v3";
 const APP_SHELL = [
   "./",
   "./index.html",

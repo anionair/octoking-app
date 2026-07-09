@@ -20,12 +20,13 @@
             <p class="eyebrow">OctoKing</p>
             <h1>문어왕 대화실</h1>
           </div>
-          <button class="icon-button ghost" id="soundToggle" type="button" aria-label="목소리 끄기">
+          <button class="voice-button" id="soundToggle" type="button" aria-label="문어왕 목소리 켜기">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 10v4h4l5 4V6L8 10H4z"></path>
               <path d="M16 9.5a4 4 0 0 1 0 5"></path>
               <path d="M18.5 7a7 7 0 0 1 0 10"></path>
             </svg>
+            <span>목소리 켜기</span>
           </button>
         </div>
 
@@ -36,22 +37,39 @@
           <div class="octo-glow"></div>
           <img
             class="octo-image"
+            id="octoImage"
             src="./assets/octoking-reference.jpg"
             alt="해군 모자를 쓴 분홍 문어왕 캐릭터"
           />
+          <div class="ink-splash" id="inkSplash" aria-hidden="true"></div>
+          <div class="user-bubble" id="userBubble">질문을 말하거나 입력하면 여기에 보여요.</div>
         </div>
 
-        <div class="mood-dock" aria-label="문어왕 상태">
-          <button class="mood active" data-mood="captain" type="button">선장</button>
-          <button class="mood" data-mood="curious" type="button">궁금</button>
-          <button class="mood" data-mood="brave" type="button">용감</button>
-          <button class="mood" data-mood="gentle" type="button">다정</button>
-        </div>
+        <form class="composer primary-composer" id="composer">
+          <button class="icon-button mic" id="micButton" type="button" aria-label="마이크">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
+              <path d="M5 10v1a7 7 0 0 0 14 0v-1"></path>
+              <path d="M12 18v3"></path>
+              <path d="M8 21h8"></path>
+            </svg>
+          </button>
+          <label class="composer-input">
+            <span class="sr-only">질문</span>
+            <textarea id="questionInput" rows="1" maxlength="240" placeholder="문어왕에게 물어볼 말"></textarea>
+          </label>
+          <button class="icon-button send" type="submit" aria-label="보내기">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M22 2 11 13"></path>
+              <path d="m22 2-7 20-4-9-9-4 20-7z"></path>
+            </svg>
+          </button>
+        </form>
       </section>
 
-      <section class="chat-pane" aria-label="대화">
+      <section class="chat-pane" aria-label="설정과 보관함">
         <div class="tabs" role="tablist" aria-label="보기 전환">
-          <button class="tab active" id="chatTab" type="button">대화</button>
+          <button class="tab active" id="chatTab" type="button">AI 연결</button>
           <button class="tab" id="treasureTab" type="button">보관함 <span id="savedCount">0</span></button>
         </div>
 
@@ -77,29 +95,8 @@
             </div>
           </details>
 
-          <div class="settings-row" aria-label="답변 설정">
-            <label>
-              나이
-              <select id="ageSelect">
-                <option value="small">5~7세</option>
-                <option value="middle" selected>8~10세</option>
-                <option value="big">11~13세</option>
-              </select>
-            </label>
-            <label>
-              길이
-              <select id="lengthSelect">
-                <option value="short">짧게</option>
-                <option value="normal" selected>보통</option>
-                <option value="long">자세히</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="caption-screen" id="captionScreen" aria-live="polite">
-            <p class="caption-kicker" id="captionKicker">문어왕 자막</p>
-            <h2 id="captionQuestion">질문을 기다리고 있어요</h2>
-            <p id="captionAnswer">바다, 생물, 파도, 심해 이야기를 물어보세요.</p>
+          <div class="control-card">
+            <p>답변 설정은 8~10세, 보통 길이로 고정했어요.</p>
             <div class="caption-actions">
               <button class="mini-action" id="speakAgain" type="button">다시 듣기</button>
               <button class="mini-action" id="saveCurrent" type="button">보관</button>
@@ -107,27 +104,6 @@
           </div>
 
           <div class="suggestion-strip" id="suggestions" aria-label="추천 질문"></div>
-
-          <form class="composer" id="composer">
-            <button class="icon-button mic" id="micButton" type="button" aria-label="마이크">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
-                <path d="M5 10v1a7 7 0 0 0 14 0v-1"></path>
-                <path d="M12 18v3"></path>
-                <path d="M8 21h8"></path>
-              </svg>
-            </button>
-            <label class="composer-input">
-              <span class="sr-only">질문</span>
-              <textarea id="questionInput" rows="1" maxlength="240" placeholder="문어왕에게 물어볼 바다 질문"></textarea>
-            </label>
-            <button class="icon-button send" type="submit" aria-label="보내기">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M22 2 11 13"></path>
-                <path d="m22 2-7 20-4-9-9-4 20-7z"></path>
-              </svg>
-            </button>
-          </form>
         </section>
 
         <section class="panel" id="treasurePanel">
