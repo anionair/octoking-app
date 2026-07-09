@@ -56,6 +56,27 @@
         </div>
 
         <section class="panel active" id="chatPanel">
+          <details class="api-panel" id="apiPanel">
+            <summary>
+              <span>AI 연결</span>
+              <strong id="apiStatus">설정 필요</strong>
+            </summary>
+            <div class="api-fields">
+              <label>
+                API 키
+                <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
+              </label>
+              <label>
+                모델
+                <input id="modelInput" type="text" autocomplete="off" />
+              </label>
+              <div class="api-actions">
+                <button class="text-button" id="saveApiKey" type="button">저장</button>
+                <button class="text-button danger" id="clearApiKey" type="button">삭제</button>
+              </div>
+            </div>
+          </details>
+
           <div class="settings-row" aria-label="답변 설정">
             <label>
               나이
@@ -75,7 +96,15 @@
             </label>
           </div>
 
-          <div class="messages" id="messages" aria-live="polite"></div>
+          <div class="caption-screen" id="captionScreen" aria-live="polite">
+            <p class="caption-kicker" id="captionKicker">문어왕 자막</p>
+            <h2 id="captionQuestion">질문을 기다리고 있어요</h2>
+            <p id="captionAnswer">바다, 생물, 파도, 심해 이야기를 물어보세요.</p>
+            <div class="caption-actions">
+              <button class="mini-action" id="speakAgain" type="button">다시 듣기</button>
+              <button class="mini-action" id="saveCurrent" type="button">보관</button>
+            </div>
+          </div>
 
           <div class="suggestion-strip" id="suggestions" aria-label="추천 질문"></div>
 
