@@ -1,13 +1,34 @@
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
-const DEFAULT_MODEL = "gpt-5.4-mini";
+const SPEECH_ENDPOINT = "https://api.openai.com/v1/audio/speech";
+const TRANSCRIPTION_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
+const DEFAULT_MODEL = "gpt-5.6-terra";
+const LEGACY_DEFAULT_MODELS = new Set(["gpt-5.4-mini"]);
+const TTS_MODEL = "gpt-4o-mini-tts";
+const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+const VOICE_NAME = "coral";
+
+const storedModel = localStorage.getItem("octoking-openai-model") || "";
+const initialModel = !storedModel || LEGACY_DEFAULT_MODELS.has(storedModel) ? DEFAULT_MODEL : storedModel;
+if (initialModel !== storedModel) {
+  localStorage.setItem("octoking-openai-model", initialModel);
+}
 
 const state = {
   sound: true,
   voiceUnlocked: false,
   listening: false,
+  holdingMic: false,
+  transcribing: false,
   saved: JSON.parse(localStorage.getItem("octoking-saved") || "[]"),
   apiKey: localStorage.getItem("octoking-openai-key") || "",
-  model: localStorage.getItem("octoking-openai-model") || DEFAULT_MODEL,
+  model: initialModel,
+  micStream: null,
+  mediaRecorder: null,
+  recorderMimeType: "",
+  audioChunks: [],
+  audioContext: null,
+  currentSource: null,
+  lastAudioUrl: "",
   current: {
     question: "",
     answer: "",
@@ -61,6 +82,7 @@ const elements = {
   userBubble: document.querySelector("#userBubble"),
   soundToggle: document.querySelector("#soundToggle"),
   micButton: document.querySelector("#micButton"),
+  voiceAudio: document.querySelector("#voiceAudio"),
   savedCount: document.querySelector("#savedCount"),
   savedList: document.querySelector("#savedList"),
   clearSaved: document.querySelector("#clearSaved"),
@@ -93,11 +115,20 @@ function setUserBubble(text) {
   elements.userBubble.classList.toggle("has-question", Boolean(text));
 }
 
+function markVoiceReady() {
+  state.voiceUnlocked = true;
+  setVoiceButton();
+}
+
 function setVoiceButton() {
-  const label = state.voiceUnlocked ? "목소리 켜짐" : "목소리 켜기";
+  let label = state.voiceUnlocked ? "목소리 켜짐" : "목소리 켜기";
+  if (!state.apiKey && !("speechSynthesis" in window)) {
+    label = "AI 키 필요";
+  }
+
   elements.soundToggle.querySelector("span").textContent = state.sound ? label : "목소리 꺼짐";
   elements.soundToggle.setAttribute("aria-label", state.sound ? label : "문어왕 목소리 켜기");
-  elements.soundToggle.classList.toggle("ready", state.voiceUnlocked && state.sound);
+  elements.soundToggle.classList.toggle("ready", state.voiceUnlocked && state.sound && Boolean(state.apiKey));
 }
 
 function updateApiUi() {
@@ -105,6 +136,7 @@ function updateApiUi() {
   elements.modelInput.value = state.model;
   elements.apiStatus.textContent = state.apiKey ? "연결됨" : "설정 필요";
   elements.apiPanel.open = !state.apiKey;
+  setVoiceButton();
 }
 
 function saveApiSettings() {
@@ -262,7 +294,7 @@ async function askChatGpt(question) {
       instructions: [
         "너는 '문어왕'이라는 친근한 한국어 어린이 설명 선생님이다.",
         "8~10세 어린이가 이해할 수 있게 쉬운 원리와 예시를 섞어 답한다.",
-        "답변 길이는 보통으로, 4~6문장 정도로 답한다.",
+        "답변 길이는 보통으로, 꼭 필요한 내용은 유지하면서 4~6문장 정도로 답한다.",
         "캐릭터 말투는 살리되, 질문과 상관없는 바다 이야기로 돌리지 않는다.",
         "질문에 정확히 답하고, 확실하지 않으면 모른다고 말한다.",
         "개인정보를 묻거나 위험한 행동을 시키는 질문에는 안전하게 거절한다.",
@@ -296,7 +328,8 @@ async function sendQuestion(rawText) {
     return;
   }
 
-  unlockVoice(false);
+  markVoiceReady();
+  void primeAudioHardware();
   elements.input.value = "";
   elements.input.style.height = "auto";
   setUserBubble(question);
@@ -306,11 +339,138 @@ async function sendQuestion(rawText) {
     const answer = state.apiKey ? await askChatGpt(question) : localAnswer(question);
     setCurrent({ question, answer, source: state.apiKey ? "chatgpt" : "local" });
     setOctopusBubble(answer, "talking");
-    speak(answer, false);
+    await speak(answer, false);
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI 연결을 확인해줘.";
     const answer = `AI 연결을 확인해줘. ${message}`;
     setCurrent({ question, answer, source: "local" });
+  }
+}
+
+function getAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    return null;
+  }
+
+  if (!state.audioContext) {
+    state.audioContext = new AudioContextClass();
+  }
+
+  return state.audioContext;
+}
+
+async function primeAudioHardware() {
+  const context = getAudioContext();
+  if (!context) {
+    return;
+  }
+
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+}
+
+function stopCurrentAudio() {
+  if (state.currentSource) {
+    try {
+      state.currentSource.stop();
+    } catch {
+      // Already stopped.
+    }
+    state.currentSource = null;
+  }
+
+  elements.voiceAudio.pause();
+  elements.voiceAudio.removeAttribute("src");
+  elements.voiceAudio.load();
+}
+
+async function playBlobWithAudioContext(blob) {
+  const context = getAudioContext();
+  if (!context) {
+    throw new Error("AudioContext not available");
+  }
+
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+
+  const buffer = await blob.arrayBuffer();
+  const audioBuffer = await context.decodeAudioData(buffer.slice(0));
+
+  return new Promise((resolve, reject) => {
+    const source = context.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(context.destination);
+    source.onended = () => {
+      if (state.currentSource === source) {
+        state.currentSource = null;
+      }
+      elements.stage.classList.remove("talking");
+      resolve();
+    };
+
+    stopCurrentAudio();
+    state.currentSource = source;
+    elements.stage.classList.add("talking");
+
+    try {
+      source.start(0);
+    } catch (error) {
+      elements.stage.classList.remove("talking");
+      reject(error);
+    }
+  });
+}
+
+async function playBlobWithAudioElement(blob) {
+  if (state.lastAudioUrl) {
+    URL.revokeObjectURL(state.lastAudioUrl);
+  }
+
+  state.lastAudioUrl = URL.createObjectURL(blob);
+  stopCurrentAudio();
+  elements.voiceAudio.src = state.lastAudioUrl;
+  elements.voiceAudio.volume = 1;
+  elements.voiceAudio.muted = false;
+  elements.voiceAudio.playsInline = true;
+  elements.stage.classList.add("talking");
+
+  await elements.voiceAudio.play();
+  elements.voiceAudio.onended = () => elements.stage.classList.remove("talking");
+}
+
+async function speakWithOpenAi(text) {
+  const response = await fetch(SPEECH_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${state.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: TTS_MODEL,
+      voice: VOICE_NAME,
+      input: text.slice(0, 3900),
+      instructions: "한국어로 또렷하고 밝게 말해. 어린이에게 설명하는 문어왕 선장처럼 친근하지만 너무 빠르지 않게 말해.",
+      response_format: "mp3",
+    }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error?.message || "목소리 만들기에 실패했어.");
+  }
+
+  const blob = await response.blob();
+  if (!blob.size) {
+    throw new Error("목소리 파일이 비어 있어.");
+  }
+
+  try {
+    await playBlobWithAudioContext(blob);
+  } catch {
+    await playBlobWithAudioElement(blob);
   }
 }
 
@@ -326,34 +486,6 @@ function pickKoreanVoice() {
     voices[0] ||
     null
   );
-}
-
-function unlockVoice(announce = true) {
-  if (!state.sound || !("speechSynthesis" in window)) {
-    setOctopusBubble("이 브라우저는 목소리 읽기를 지원하지 않아.");
-    return;
-  }
-
-  state.voiceUnlocked = true;
-  setVoiceButton();
-
-  const text = announce ? "문어왕 목소리가 켜졌어." : "응.";
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "ko-KR";
-  utterance.rate = 0.86;
-  utterance.pitch = 1.02;
-  utterance.volume = 1;
-  const voice = pickKoreanVoice();
-  if (voice) {
-    utterance.voice = voice;
-  }
-
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utterance);
-
-  if (announce) {
-    setOctopusBubble("문어왕 목소리가 켜졌어.", "talking");
-  }
 }
 
 function splitSpeech(text) {
@@ -377,14 +509,9 @@ function splitSpeech(text) {
   return chunks.length ? chunks : [text];
 }
 
-function speak(text, force = false) {
-  if (!state.sound || !("speechSynthesis" in window) || !text) {
-    return;
-  }
-
-  if (!state.voiceUnlocked && !force) {
-    setOctopusBubble("소리로 들으려면 먼저 '목소리 켜기'를 눌러줘.");
-    return;
+function speakWithBrowser(text) {
+  if (!("speechSynthesis" in window)) {
+    return Promise.reject(new Error("이 브라우저는 목소리 읽기를 지원하지 않아."));
   }
 
   const chunks = splitSpeech(text);
@@ -393,84 +520,309 @@ function speak(text, force = false) {
 
   window.speechSynthesis.cancel();
 
-  const speakNext = () => {
-    if (index >= chunks.length) {
-      elements.stage.classList.remove("talking");
-      return;
-    }
+  return new Promise((resolve, reject) => {
+    const speakNext = () => {
+      if (index >= chunks.length) {
+        elements.stage.classList.remove("talking");
+        resolve();
+        return;
+      }
 
-    const utterance = new SpeechSynthesisUtterance(chunks[index]);
-    utterance.lang = "ko-KR";
-    utterance.rate = 0.86;
-    utterance.pitch = 1.02;
-    utterance.volume = 1;
-    if (voice) {
-      utterance.voice = voice;
-    }
-    utterance.onstart = () => elements.stage.classList.add("talking");
-    utterance.onend = () => {
-      index += 1;
-      speakNext();
+      const utterance = new SpeechSynthesisUtterance(chunks[index]);
+      utterance.lang = "ko-KR";
+      utterance.rate = 0.86;
+      utterance.pitch = 1.02;
+      utterance.volume = 1;
+      if (voice) {
+        utterance.voice = voice;
+      }
+      utterance.onstart = () => elements.stage.classList.add("talking");
+      utterance.onend = () => {
+        index += 1;
+        speakNext();
+      };
+      utterance.onerror = () => {
+        elements.stage.classList.remove("talking");
+        reject(new Error("브라우저 목소리 재생에 실패했어."));
+      };
+      window.speechSynthesis.speak(utterance);
     };
-    utterance.onerror = () => {
-      elements.stage.classList.remove("talking");
-      setOctopusBubble("소리가 안 나면 '목소리 켜기'를 한 번 누른 뒤 다시 듣기를 눌러줘.");
-    };
-    window.speechSynthesis.speak(utterance);
-  };
 
-  speakNext();
+    speakNext();
+  });
 }
 
-function setupSpeechRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+async function unlockVoice(announce = true) {
+  if (!state.sound) {
+    state.sound = true;
+  }
 
-  if (!SpeechRecognition) {
-    elements.micButton.disabled = true;
-    elements.micButton.title = "이 브라우저는 마이크 입력을 지원하지 않습니다.";
+  markVoiceReady();
+
+  try {
+    await primeAudioHardware();
+  } catch {
+    // The OpenAI MP3 fallback can still work through the audio element.
+  }
+
+  if (!announce) {
     return;
   }
 
-  const recognition = new SpeechRecognition();
-  recognition.lang = "ko-KR";
-  recognition.interimResults = true;
-  recognition.continuous = false;
+  if (!state.apiKey && !("speechSynthesis" in window)) {
+    setOctopusBubble("AI 연결에 API 키를 저장하면 문어왕 목소리가 나와.");
+    return;
+  }
 
-  recognition.addEventListener("start", () => {
-    state.listening = true;
-    elements.micButton.classList.add("listening");
-    setOctopusBubble("듣고 있어.");
+  setOctopusBubble("문어왕 목소리를 켜는 중...", "thinking");
+  await speak("문어왕 목소리가 켜졌어.", true);
+}
+
+async function speak(text, force = false) {
+  if (!state.sound || !text) {
+    return;
+  }
+
+  if (!state.voiceUnlocked && !force) {
+    return;
+  }
+
+  try {
+    if (state.apiKey) {
+      await speakWithOpenAi(text);
+      return;
+    }
+
+    await speakWithBrowser(text);
+  } catch (error) {
+    elements.stage.classList.remove("talking");
+    if (state.apiKey && "speechSynthesis" in window) {
+      try {
+        await speakWithBrowser(text);
+        return;
+      } catch {
+        // Show the clearer message below.
+      }
+    }
+
+    if (force) {
+      const message = error instanceof Error ? error.message : "목소리 재생이 막혔어.";
+      setOctopusBubble(`목소리 재생을 확인해줘. ${message}`);
+    }
+  }
+}
+
+function canRecordAudio() {
+  return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
+function pickRecorderMimeType() {
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus", "audio/ogg"];
+  return types.find((type) => window.MediaRecorder?.isTypeSupported?.(type)) || "";
+}
+
+function recordingFileName(mimeType) {
+  if (mimeType.includes("mp4")) {
+    return "question.mp4";
+  }
+  if (mimeType.includes("ogg")) {
+    return "question.ogg";
+  }
+  return "question.webm";
+}
+
+function setMicRecording(active) {
+  state.listening = active;
+  elements.micButton.classList.toggle("listening", active);
+  elements.micButton.classList.toggle("recording", active);
+  elements.micButton.setAttribute("aria-pressed", String(active));
+}
+
+async function ensureMicPermission({ quiet = false } = {}) {
+  if (!state.apiKey) {
+    if (!quiet) {
+      setOctopusBubble("마이크 질문은 AI 연결에 API 키를 저장한 뒤 사용할 수 있어.");
+    }
+    throw new Error("API key required");
+  }
+
+  if (!canRecordAudio()) {
+    if (!quiet) {
+      setOctopusBubble("이 브라우저는 녹음 기능을 지원하지 않아. 휴대폰 기본 브라우저나 크롬으로 열어줘.");
+    }
+    throw new Error("Audio recording not supported");
+  }
+
+  const liveTrack = state.micStream?.getAudioTracks().find((track) => track.readyState === "live");
+  if (state.micStream && liveTrack) {
+    return state.micStream;
+  }
+
+  try {
+    state.micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    elements.micButton.classList.add("ready");
+    elements.micButton.title = "누르고 있는 동안 말하기";
+    return state.micStream;
+  } catch (error) {
+    if (!quiet) {
+      setOctopusBubble("마이크 허용을 눌러줘. 한 번 허용하면 계속 길게 눌러 말할 수 있어.");
+    }
+    throw error;
+  }
+}
+
+async function transcribeAudio(blob) {
+  const formData = new FormData();
+  const mimeType = blob.type || state.recorderMimeType || "audio/webm";
+  formData.append("file", blob, recordingFileName(mimeType));
+  formData.append("model", TRANSCRIBE_MODEL);
+  formData.append("language", "ko");
+  formData.append("response_format", "json");
+
+  const response = await fetch(TRANSCRIPTION_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${state.apiKey}`,
+    },
+    body: formData,
   });
 
-  recognition.addEventListener("result", (event) => {
-    const transcript = Array.from(event.results)
-      .map((result) => result[0].transcript)
-      .join("");
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
+
+  if (!response.ok) {
+    throw new Error(data.error?.message || "마이크 말을 글자로 바꾸지 못했어.");
+  }
+
+  return (data.text || "").trim();
+}
+
+async function handleRecordingStop() {
+  const chunks = state.audioChunks.slice();
+  const mimeType = state.recorderMimeType || "audio/webm";
+  state.audioChunks = [];
+  state.mediaRecorder = null;
+  setMicRecording(false);
+
+  const blob = new Blob(chunks, { type: mimeType });
+  if (blob.size < 1200) {
+    setOctopusBubble("조금 더 길게 말해줘. 마이크를 누른 채로 말하고, 끝나면 손을 떼면 돼.");
+    return;
+  }
+
+  state.transcribing = true;
+  elements.micButton.disabled = true;
+  setOctopusBubble("말을 글자로 바꾸는 중...", "thinking");
+
+  try {
+    const transcript = await transcribeAudio(blob);
+    if (!transcript) {
+      setOctopusBubble("잘 못 들었어. 마이크를 누른 채로 다시 말해줘.");
+      return;
+    }
+
     elements.input.value = transcript;
     setUserBubble(transcript);
     autoGrow();
-    if (event.results[event.results.length - 1].isFinal) {
-      sendQuestion(transcript);
+    await sendQuestion(transcript);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "마이크 입력을 확인해줘.";
+    setOctopusBubble(`마이크 입력을 확인해줘. ${message}`);
+  } finally {
+    state.transcribing = false;
+    elements.micButton.disabled = false;
+  }
+}
+
+async function startRecording(event) {
+  event.preventDefault();
+
+  if (state.listening || state.transcribing) {
+    return;
+  }
+
+  state.holdingMic = true;
+  markVoiceReady();
+  void primeAudioHardware();
+
+  try {
+    if (typeof event.pointerId === "number") {
+      elements.micButton.setPointerCapture(event.pointerId);
     }
-  });
+  } catch {
+    // Pointer capture is not available in every mobile browser.
+  }
 
-  recognition.addEventListener("end", () => {
-    state.listening = false;
-    elements.micButton.classList.remove("listening");
-  });
-
-  recognition.addEventListener("error", () => {
-    setOctopusBubble("마이크가 잠깐 조용해졌어. 글자로 물어봐도 좋아.");
-  });
-
-  elements.micButton.addEventListener("click", () => {
-    if (state.listening) {
-      recognition.stop();
+  try {
+    const stream = await ensureMicPermission();
+    if (!state.holdingMic) {
+      setOctopusBubble("다시 마이크를 길게 누르고 말해줘.");
       return;
     }
-    unlockVoice(false);
-    recognition.start();
-  });
+
+    const mimeType = pickRecorderMimeType();
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    state.mediaRecorder = recorder;
+    state.recorderMimeType = recorder.mimeType || mimeType || "audio/webm";
+    state.audioChunks = [];
+
+    recorder.addEventListener("dataavailable", (recordEvent) => {
+      if (recordEvent.data?.size) {
+        state.audioChunks.push(recordEvent.data);
+      }
+    });
+    recorder.addEventListener("stop", () => {
+      void handleRecordingStop();
+    });
+
+    recorder.start();
+    setMicRecording(true);
+    setUserBubble("듣고 있어... 버튼을 떼면 질문할게.");
+    setOctopusBubble("마이크 버튼을 누른 채로 말해줘.");
+  } catch {
+    state.holdingMic = false;
+    setMicRecording(false);
+  }
+}
+
+function stopRecording(event) {
+  event?.preventDefault?.();
+  state.holdingMic = false;
+
+  if (!state.mediaRecorder || state.mediaRecorder.state === "inactive") {
+    return;
+  }
+
+  try {
+    state.mediaRecorder.stop();
+  } catch {
+    setMicRecording(false);
+  }
+}
+
+function releaseMicStream() {
+  state.micStream?.getTracks().forEach((track) => track.stop());
+  state.micStream = null;
+}
+
+function prepareMicrophoneOnStartup() {
+  elements.micButton.title = state.apiKey ? "누르고 있는 동안 말하기" : "AI 키 저장 후 마이크 사용";
+
+  if (!state.apiKey || !canRecordAudio() || window.location.protocol === "file:") {
+    return;
+  }
+
+  window.setTimeout(() => {
+    ensureMicPermission({ quiet: true }).catch(() => {
+      elements.micButton.title = "처음 사용할 때 마이크 허용을 눌러주세요";
+    });
+  }, 800);
 }
 
 function reactToTouch() {
@@ -514,15 +866,11 @@ elements.input.addEventListener("input", () => {
 });
 
 elements.soundToggle.addEventListener("click", () => {
-  if (!state.sound) {
-    state.sound = true;
-  }
-  unlockVoice(true);
+  void unlockVoice(true);
 });
 
 elements.speakAgain.addEventListener("click", () => {
-  unlockVoice(false);
-  speak(state.current.answer, true);
+  void unlockVoice(false).then(() => speak(state.current.answer, true));
 });
 
 elements.saveCurrent.addEventListener("click", saveCurrent);
@@ -531,6 +879,26 @@ elements.clearApiKey.addEventListener("click", clearApiSettings);
 elements.chatTab.addEventListener("click", () => openTab("chat"));
 elements.treasureTab.addEventListener("click", () => openTab("treasure"));
 elements.octoImage.addEventListener("pointerdown", reactToTouch);
+
+elements.micButton.addEventListener("pointerdown", startRecording);
+elements.micButton.addEventListener("pointerup", stopRecording);
+elements.micButton.addEventListener("pointercancel", stopRecording);
+elements.micButton.addEventListener("lostpointercapture", stopRecording);
+elements.micButton.addEventListener("contextmenu", (event) => event.preventDefault());
+window.addEventListener("pointerup", stopRecording);
+window.addEventListener("pagehide", releaseMicStream);
+
+elements.micButton.addEventListener("keydown", (event) => {
+  if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+    startRecording(event);
+  }
+});
+
+elements.micButton.addEventListener("keyup", (event) => {
+  if (event.key === " " || event.key === "Enter") {
+    stopRecording(event);
+  }
+});
 
 elements.clearSaved.addEventListener("click", () => {
   state.saved = [];
@@ -550,11 +918,11 @@ setVoiceButton();
 setCurrent({
   question: "",
   answer: state.apiKey
-    ? "이제 질문하면 ChatGPT API로 답할게. 먼저 '목소리 켜기'를 누르면 소리도 들려."
-    : "AI 연결 칸에 API 키를 저장하면 질문에 맞춰 답할게. 먼저 '목소리 켜기'를 누르면 소리도 들려.",
+    ? "이제 질문하면 ChatGPT API로 답할게. 먼저 '목소리 켜기'를 누르면 문어왕 목소리도 들려."
+    : "AI 연결 칸에 API 키를 저장하면 질문에 맞춰 답할게. API 키가 있으면 문어왕 목소리도 나와.",
   source: state.apiKey ? "chatgpt" : "local",
 });
-setupSpeechRecognition();
+prepareMicrophoneOnStartup();
 
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   window.addEventListener("load", () => {

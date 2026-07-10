@@ -46,7 +46,7 @@
         </div>
 
         <form class="composer primary-composer" id="composer">
-          <button class="icon-button mic" id="micButton" type="button" aria-label="마이크">
+          <button class="icon-button mic" id="micButton" type="button" aria-label="마이크 길게 누르기">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
               <path d="M5 10v1a7 7 0 0 0 14 0v-1"></path>
@@ -116,6 +116,7 @@
       </section>
     </main>
 
+    <audio id="voiceAudio" preload="auto" playsinline></audio>
     <script src="./app.js"></script>
   </body>
 </html>

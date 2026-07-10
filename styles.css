@@ -175,12 +175,23 @@ h2 {
 .icon-button.mic {
   background: var(--cream);
   color: var(--blue-900);
+  touch-action: none;
 }
 
-.icon-button.mic.listening {
+.icon-button.mic.ready {
+  box-shadow: inset 0 0 0 2px rgba(0, 104, 200, 0.12);
+}
+
+.icon-button.mic.listening,
+.icon-button.mic.recording {
   background: var(--coral);
   color: white;
   animation: pulse 1s ease-in-out infinite;
+}
+
+.icon-button.mic:disabled {
+  cursor: progress;
+  opacity: 0.64;
 }
 
 .icon-button.send {
@@ -545,6 +556,21 @@ select {
   box-shadow: 0 16px 34px rgba(129, 0, 74, 0.16);
 }
 
+.primary-composer .mic {
+  width: 64px;
+  height: 64px;
+}
+
+.primary-composer .mic svg {
+  width: 30px;
+  height: 30px;
+}
+
+.primary-composer .send {
+  width: 56px;
+  height: 56px;
+}
+
 .composer-input {
   flex: 1;
 }
@@ -811,6 +837,16 @@ textarea::placeholder {
   .icon-button {
     width: 46px;
     height: 46px;
+  }
+
+  .primary-composer .mic {
+    width: 60px;
+    height: 60px;
+  }
+
+  .primary-composer .send {
+    width: 52px;
+    height: 52px;
   }
 
   textarea {
