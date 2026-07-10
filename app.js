@@ -1,8 +1,8 @@
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
 const SPEECH_ENDPOINT = "https://api.openai.com/v1/audio/speech";
 const TRANSCRIPTION_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
-const DEFAULT_MODEL = "gpt-5.6-terra";
-const LEGACY_DEFAULT_MODELS = new Set(["gpt-5.4-mini"]);
+const DEFAULT_MODEL = "gpt-5.5";
+const LEGACY_DEFAULT_MODELS = new Set(["gpt-5.4-mini", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
 const TTS_MODEL = "gpt-4o-mini-tts";
 const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
 const VOICE_NAME = "coral";
@@ -154,6 +154,19 @@ function saveApiSettings() {
   setOctopusBubble(state.apiKey ? "AI 연결을 저장했어. 이제 정확히 대답해볼게!" : "AI 키가 비어 있어.");
 }
 
+function switchToDefaultModel() {
+  state.model = DEFAULT_MODEL;
+  localStorage.setItem("octoking-openai-model", state.model);
+  updateApiUi();
+}
+
+function shouldRetryWithDefaultModel(message) {
+  return (
+    state.model !== DEFAULT_MODEL &&
+    /gpt-5\.6|limited preview|not available|does not exist|unsupported|access/i.test(message)
+  );
+}
+
 function clearApiSettings() {
   state.apiKey = "";
   localStorage.removeItem("octoking-openai-key");
@@ -282,7 +295,7 @@ function extractResponseText(data) {
   return parts.join("\n").trim();
 }
 
-async function askChatGpt(question) {
+async function askChatGpt(question, retryWithDefault = true) {
   const response = await fetch(OPENAI_ENDPOINT, {
     method: "POST",
     headers: {
@@ -308,6 +321,10 @@ async function askChatGpt(question) {
 
   if (!response.ok) {
     const message = data.error?.message || "AI 연결에 실패했어.";
+    if (retryWithDefault && shouldRetryWithDefaultModel(message)) {
+      switchToDefaultModel();
+      return askChatGpt(question, false);
+    }
     throw new Error(message);
   }
 
